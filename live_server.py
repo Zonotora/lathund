@@ -153,35 +153,20 @@ ws.onclose = function() {{
     }}, 1000);
 }};
 
+let isEditMode = true;
+let isDarkMode = false;
+
 function enableEditing() {{
     const mainContent = document.querySelector('main.container');
     if (mainContent) {{
-        // Make content editable
-        mainContent.setAttribute('contenteditable', 'true');
-        mainContent.style.outline = 'none';
-        mainContent.style.border = '1px dashed #ccc';
-        mainContent.style.padding = '10px';
-        
-        // Add editing indicator
-        const indicator = document.createElement('div');
-        indicator.id = 'edit-indicator';
-        indicator.innerHTML = '✏️ Content is editable - changes auto-save';
-        indicator.style.cssText = `
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background: #4CAF50;
-            color: white;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            z-index: 1000;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        `;
-        document.body.appendChild(indicator);
+        // Create top bar
+        createTopBar();
         
         // Create editing toolbar
         createEditingToolbar();
+        
+        // Set initial mode
+        setEditMode(true);
         
         // Listen for content changes
         mainContent.addEventListener('input', handleContentChange);
@@ -197,25 +182,348 @@ function enableEditing() {{
     }}
 }}
 
+function createTopBar() {{
+    const mainContent = document.querySelector('main.container');
+    
+    // Create top bar container
+    const topBar = document.createElement('div');
+    topBar.id = 'top-bar';
+    topBar.style.cssText = `
+        position: sticky;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 50px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        z-index: 1000;
+        font-family: system-ui, -apple-system, sans-serif;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: -10px -10px 20px -10px;
+    `;
+    
+    // Left side - Mode toggles
+    const leftControls = document.createElement('div');
+    leftControls.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    
+    // Edit/Read mode toggle
+    const editToggle = document.createElement('button');
+    editToggle.id = 'edit-toggle';
+    editToggle.innerHTML = '✏️ Edit';
+    editToggle.style.cssText = `
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        transition: background 0.2s;
+    `;
+    
+    editToggle.addEventListener('click', () => {{
+        toggleEditMode();
+    }});
+    
+    // Light/Dark mode toggle
+    const themeToggle = document.createElement('button');
+    themeToggle.id = 'theme-toggle';
+    themeToggle.innerHTML = '🌙 Dark';
+    themeToggle.style.cssText = `
+        background: #6c757d;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        transition: background 0.2s;
+    `;
+    
+    themeToggle.addEventListener('click', () => {{
+        toggleTheme();
+    }});
+    
+    leftControls.appendChild(editToggle);
+    leftControls.appendChild(themeToggle);
+    
+    // Center - Filename
+    const filename = document.createElement('div');
+    filename.id = 'filename-display';
+    filename.style.cssText = `
+        font-weight: 600;
+        color: #495057;
+        font-size: 14px;
+        flex: 1;
+        text-align: center;
+    `;
+    filename.textContent = window.location.pathname.split('/').pop() || 'Document';
+    
+    // Right side - Status indicator (moved from corner)
+    const statusIndicator = document.createElement('div');
+    statusIndicator.id = 'status-indicator';
+    statusIndicator.innerHTML = '✏️ Ready';
+    statusIndicator.style.cssText = `
+        background: #28a745;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+    `;
+    
+    // Assemble top bar
+    topBar.appendChild(leftControls);
+    topBar.appendChild(filename);
+    topBar.appendChild(statusIndicator);
+    
+    // Insert at the top of main content
+    mainContent.insertBefore(topBar, mainContent.firstChild);
+    
+    // Update main content padding to account for top bar
+    mainContent.style.paddingTop = '10px';
+}}
+
+function toggleEditMode() {{
+    setEditMode(!isEditMode);
+}}
+
+function setEditMode(enabled) {{
+    isEditMode = enabled;
+    const mainContent = document.querySelector('main.container');
+    const editToggle = document.getElementById('edit-toggle');
+    const toolbar = document.getElementById('editing-toolbar');
+    const statusIndicator = document.getElementById('status-indicator');
+    
+    if (enabled) {{
+        // Enable editing
+        mainContent.setAttribute('contenteditable', 'true');
+        mainContent.style.outline = 'none';
+        mainContent.style.border = '1px dashed #ccc';
+        
+        // Show toolbar
+        if (toolbar) {{
+            toolbar.style.display = 'flex';
+        }}
+        
+        editToggle.innerHTML = '✏️ Edit';
+        editToggle.style.background = '#007bff';
+        statusIndicator.innerHTML = '✏️ Edit Mode';
+        statusIndicator.style.background = '#007bff';
+    }} else {{
+        // Disable editing
+        mainContent.setAttribute('contenteditable', 'false');
+        mainContent.style.outline = 'none';
+        mainContent.style.border = '1px solid transparent';
+        
+        // Hide toolbar
+        if (toolbar) {{
+            toolbar.style.display = 'none';
+        }}
+        
+        // Clear highlighting
+        if (currentHighlightedBlock) {{
+            currentHighlightedBlock.style.outline = '';
+            currentHighlightedBlock = null;
+        }}
+        
+        editToggle.innerHTML = '👁️ Read';
+        editToggle.style.background = '#28a745';
+        statusIndicator.innerHTML = '👁️ Read Mode';
+        statusIndicator.style.background = '#28a745';
+    }}
+}}
+
+function toggleTheme() {{
+    isDarkMode = !isDarkMode;
+    applyTheme();
+}}
+
+function applyTheme() {{
+    const body = document.body;
+    const mainContent = document.querySelector('main.container');
+    const topBar = document.getElementById('top-bar');
+    const themeToggle = document.getElementById('theme-toggle');
+    const filenameDisplay = document.getElementById('filename-display');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarInner = document.querySelector('.sidebar-inner');
+    
+    if (isDarkMode) {{
+        // Dark theme
+        body.style.background = '#1a1a1a';
+        body.style.color = '#e0e0e0';
+        
+        if (mainContent) {{
+            mainContent.style.background = '#2d2d2d';
+            mainContent.style.color = '#e0e0e0';
+        }}
+        
+        if (topBar) {{
+            topBar.style.background = '#343a40';
+            topBar.style.borderBottomColor = '#495057';
+        }}
+        
+        if (filenameDisplay) {{
+            filenameDisplay.style.color = '#e0e0e0';
+        }}
+        
+        // Update sidebar
+        if (sidebar) {{
+            sidebar.style.background = '#2d2d2d';
+            sidebar.style.borderRightColor = '#495057';
+        }}
+        
+        if (sidebarInner) {{
+            sidebarInner.style.color = '#e0e0e0';
+            
+            // Update sidebar heading
+            const sidebarH2 = sidebarInner.querySelector('h2');
+            if (sidebarH2) {{
+                sidebarH2.style.color = '#e0e0e0';
+                sidebarH2.style.borderBottomColor = '#495057';
+            }}
+            
+            // Update sidebar links
+            const sidebarLinks = sidebarInner.querySelectorAll('a');
+            sidebarLinks.forEach(link => {{
+                link.style.color = '#9db4d0';
+            }});
+            
+            // Update list items
+            const sidebarItems = sidebarInner.querySelectorAll('li');
+            sidebarItems.forEach(item => {{
+                item.style.borderBottomColor = '#495057';
+            }});
+        }}
+        
+        themeToggle.innerHTML = '☀️ Light';
+        themeToggle.style.background = '#ffc107';
+        themeToggle.style.color = '#212529';
+        
+        // Update toolbar
+        const toolbar = document.getElementById('editing-toolbar');
+        if (toolbar) {{
+            toolbar.style.background = '#343a40';
+            toolbar.style.borderBottomColor = '#495057';
+        }}
+        
+        // Update code blocks
+        const codeBlocks = document.querySelectorAll('.executable-code-block');
+        codeBlocks.forEach(block => {{
+            const header = block.querySelector('div');
+            if (header) {{
+                header.style.background = '#495057';
+                header.style.color = '#e0e0e0';
+            }}
+        }});
+        
+    }} else {{
+        // Light theme
+        body.style.background = '#ffffff';
+        body.style.color = '#212529';
+        
+        if (mainContent) {{
+            mainContent.style.background = '#ffffff';
+            mainContent.style.color = '#212529';
+        }}
+        
+        if (topBar) {{
+            topBar.style.background = '#f8f9fa';
+            topBar.style.borderBottomColor = '#dee2e6';
+        }}
+        
+        if (filenameDisplay) {{
+            filenameDisplay.style.color = '#495057';
+        }}
+        
+        // Reset sidebar to original styles
+        if (sidebar) {{
+            sidebar.style.background = '';
+            sidebar.style.borderRightColor = '';
+        }}
+        
+        if (sidebarInner) {{
+            sidebarInner.style.color = '';
+            
+            // Reset sidebar heading
+            const sidebarH2 = sidebarInner.querySelector('h2');
+            if (sidebarH2) {{
+                sidebarH2.style.color = '';
+                sidebarH2.style.borderBottomColor = '';
+            }}
+            
+            // Reset sidebar links
+            const sidebarLinks = sidebarInner.querySelectorAll('a');
+            sidebarLinks.forEach(link => {{
+                link.style.color = '';
+            }});
+            
+            // Reset list items
+            const sidebarItems = sidebarInner.querySelectorAll('li');
+            sidebarItems.forEach(item => {{
+                item.style.borderBottomColor = '';
+            }});
+        }}
+        
+        themeToggle.innerHTML = '🌙 Dark';
+        themeToggle.style.background = '#6c757d';
+        themeToggle.style.color = 'white';
+        
+        // Reset toolbar
+        const toolbar = document.getElementById('editing-toolbar');
+        if (toolbar) {{
+            toolbar.style.background = '';
+            toolbar.style.borderBottomColor = '';
+        }}
+        
+        // Update code blocks
+        const codeBlocks = document.querySelectorAll('.executable-code-block');
+        codeBlocks.forEach(block => {{
+            const header = block.querySelector('div');
+            if (header) {{
+                header.style.background = '#e9ecef';
+                header.style.color = '#495057';
+            }}
+        }});
+    }}
+}}
+
 function createEditingToolbar() {{
+    const mainContent = document.querySelector('main.container');
     const toolbar = document.createElement('div');
     toolbar.id = 'editing-toolbar';
     toolbar.style.cssText = `
-        position: absolute;
-        background: #2c3e50;
-        border-radius: 6px;
-        padding: 8px;
-        display: none;
-        z-index: 1001;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        position: sticky;
+        top: 50px;
+        left: 0;
+        right: 0;
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        z-index: 999;
         font-family: system-ui, -apple-system, sans-serif;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: 0 -10px 20px -10px;
     `;
     
     const buttons = [
         {{ icon: 'B', title: 'Bold', command: 'bold', style: 'font-weight: bold;' }},
         {{ icon: 'I', title: 'Italic', command: 'italic', style: 'font-style: italic;' }},
         {{ icon: 'U', title: 'Underline', command: 'underline', style: 'text-decoration: underline;' }},
-        {{ icon: '&lt;/&gt;', title: 'Code', command: 'code', style: 'font-family: monospace; background: #f1f1f1; padding: 2px 4px; border-radius: 3px;' }},
+        {{ icon: '&lt;/&gt;', title: 'Code', command: 'code', style: 'font-family: monospace;' }},
         {{ icon: '🔗', title: 'Link', command: 'link', style: 'color: #3498db;' }},
         {{ icon: '📋', title: 'Table', command: 'table', style: 'color: #e74c3c;' }},
         {{ icon: '#', title: 'Header', command: 'header', style: 'font-weight: bold; color: #9b59b6;' }},
@@ -228,23 +536,27 @@ function createEditingToolbar() {{
         button.innerHTML = btn.icon;
         button.title = btn.title;
         button.style.cssText = `
-            background: #34495e;
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            margin: 0 2px;
+            background: #e9ecef;
+            color: #495057;
+            border: 1px solid #ced4da;
+            padding: 6px 12px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 12px;
-            transition: background 0.2s;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
             ${{btn.style}}
         `;
         
         button.addEventListener('mouseenter', () => {{
-            button.style.background = '#4a6741';
+            button.style.background = '#007bff';
+            button.style.color = 'white';
+            button.style.borderColor = '#007bff';
         }});
         button.addEventListener('mouseleave', () => {{
-            button.style.background = '#34495e';
+            button.style.background = '#e9ecef';
+            button.style.color = '#495057';
+            button.style.borderColor = '#ced4da';
         }});
         
         button.addEventListener('click', (e) => {{
@@ -255,14 +567,19 @@ function createEditingToolbar() {{
         toolbar.appendChild(button);
     }});
     
-    document.body.appendChild(toolbar);
+    // Insert toolbar after the top bar
+    const topBar = document.getElementById('top-bar');
+    if (topBar && topBar.nextSibling) {{
+        mainContent.insertBefore(toolbar, topBar.nextSibling);
+    }} else {{
+        mainContent.insertBefore(toolbar, mainContent.children[1]);
+    }}
 }}
 
 let currentHighlightedBlock = null;
 
 function handleCursorPosition() {{
     const selection = window.getSelection();
-    const toolbar = document.getElementById('editing-toolbar');
     const mainContent = document.querySelector('main.container');
     
     // Clear previous highlighting
@@ -271,8 +588,12 @@ function handleCursorPosition() {{
         currentHighlightedBlock = null;
     }}
     
+    // Don't highlight in read mode
+    if (!isEditMode) {{
+        return;
+    }}
+    
     if (!selection.rangeCount) {{
-        toolbar.style.display = 'none';
         return;
     }}
     
@@ -295,7 +616,6 @@ function handleCursorPosition() {{
     
     // Check if we found a valid block and it's within the editable content
     if (!element || element === mainContent || !mainContent.contains(element)) {{
-        toolbar.style.display = 'none';
         return;
     }}
     
@@ -303,21 +623,6 @@ function handleCursorPosition() {{
     currentHighlightedBlock = element;
     element.style.outline = '2px solid #3498db';
     element.style.outlineOffset = '2px';
-    
-    // Position toolbar above the block
-    const rect = element.getBoundingClientRect();
-    toolbar.style.display = 'block';
-    toolbar.style.left = `${{rect.left + window.scrollX}}px`;
-    toolbar.style.top = `${{rect.top + window.scrollY - toolbar.offsetHeight - 10}}px`;
-    
-    // Ensure toolbar stays within viewport
-    const toolbarRect = toolbar.getBoundingClientRect();
-    if (toolbarRect.right > window.innerWidth) {{
-        toolbar.style.left = `${{window.innerWidth - toolbarRect.width - 10}}px`;
-    }}
-    if (toolbarRect.top < 0) {{
-        toolbar.style.top = `${{rect.bottom + window.scrollY + 10}}px`;
-    }}
 }}
 
 function executeCommand(command) {{
@@ -652,10 +957,10 @@ function insertTable() {{
 }}
 
 function handleContentChange() {{
-    const indicator = document.getElementById('edit-indicator');
-    if (indicator) {{
-        indicator.style.background = '#FF9800';
-        indicator.innerHTML = '💾 Saving...';
+    const statusIndicator = document.getElementById('status-indicator');
+    if (statusIndicator && isEditMode) {{
+        statusIndicator.style.background = '#FF9800';
+        statusIndicator.innerHTML = '💾 Saving...';
     }}
     
     // Debounce saves
@@ -678,14 +983,14 @@ function saveContent() {{
             content: htmlContent
         }}));
         
-        const indicator = document.getElementById('edit-indicator');
-        if (indicator) {{
-            indicator.style.background = '#4CAF50';
-            indicator.innerHTML = '✅ Saved';
+        const statusIndicator = document.getElementById('status-indicator');
+        if (statusIndicator && isEditMode) {{
+            statusIndicator.style.background = '#28a745';
+            statusIndicator.innerHTML = '✅ Saved';
             
             setTimeout(() => {{
-                indicator.style.background = '#4CAF50';
-                indicator.innerHTML = '✏️ Content is editable - changes auto-save';
+                statusIndicator.style.background = '#007bff';
+                statusIndicator.innerHTML = '✏️ Edit Mode';
             }}, 2000);
         }}
     }}
