@@ -151,12 +151,279 @@ function enableEditing() {{
         `;
         document.body.appendChild(indicator);
         
+        // Create editing toolbar
+        createEditingToolbar();
+        
         // Listen for content changes
         mainContent.addEventListener('input', handleContentChange);
         mainContent.addEventListener('paste', function(e) {{
             setTimeout(handleContentChange, 100);
         }});
+        
+        // Listen for cursor position changes to highlight blocks
+        mainContent.addEventListener('click', handleCursorPosition);
+        mainContent.addEventListener('keyup', handleCursorPosition);
+        mainContent.addEventListener('focus', handleCursorPosition);
+        document.addEventListener('selectionchange', handleCursorPosition);
     }}
+}}
+
+function createEditingToolbar() {{
+    const toolbar = document.createElement('div');
+    toolbar.id = 'editing-toolbar';
+    toolbar.style.cssText = `
+        position: absolute;
+        background: #2c3e50;
+        border-radius: 6px;
+        padding: 8px;
+        display: none;
+        z-index: 1001;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        font-family: system-ui, -apple-system, sans-serif;
+    `;
+    
+    const buttons = [
+        {{ icon: 'B', title: 'Bold', command: 'bold', style: 'font-weight: bold;' }},
+        {{ icon: 'I', title: 'Italic', command: 'italic', style: 'font-style: italic;' }},
+        {{ icon: 'U', title: 'Underline', command: 'underline', style: 'text-decoration: underline;' }},
+        {{ icon: '&lt;/&gt;', title: 'Code', command: 'code', style: 'font-family: monospace; background: #f1f1f1; padding: 2px 4px; border-radius: 3px;' }},
+        {{ icon: '🔗', title: 'Link', command: 'link', style: 'color: #3498db;' }},
+        {{ icon: '📋', title: 'Table', command: 'table', style: 'color: #e74c3c;' }},
+        {{ icon: '#', title: 'Header', command: 'header', style: 'font-weight: bold; color: #9b59b6;' }},
+        {{ icon: '•', title: 'List', command: 'list', style: 'color: #f39c12;' }}
+    ];
+    
+    buttons.forEach(btn => {{
+        const button = document.createElement('button');
+        button.innerHTML = btn.icon;
+        button.title = btn.title;
+        button.style.cssText = `
+            background: #34495e;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            margin: 0 2px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+            ${{btn.style}}
+        `;
+        
+        button.addEventListener('mouseenter', () => {{
+            button.style.background = '#4a6741';
+        }});
+        button.addEventListener('mouseleave', () => {{
+            button.style.background = '#34495e';
+        }});
+        
+        button.addEventListener('click', (e) => {{
+            e.preventDefault();
+            executeCommand(btn.command);
+        }});
+        
+        toolbar.appendChild(button);
+    }});
+    
+    document.body.appendChild(toolbar);
+}}
+
+let currentHighlightedBlock = null;
+
+function handleCursorPosition() {{
+    const selection = window.getSelection();
+    const toolbar = document.getElementById('editing-toolbar');
+    const mainContent = document.querySelector('main.container');
+    
+    // Clear previous highlighting
+    if (currentHighlightedBlock) {{
+        currentHighlightedBlock.style.outline = '';
+        currentHighlightedBlock = null;
+    }}
+    
+    if (!selection.rangeCount) {{
+        toolbar.style.display = 'none';
+        return;
+    }}
+    
+    const range = selection.getRangeAt(0);
+    let element = range.commonAncestorContainer;
+    
+    // Find the closest block element
+    while (element && element.nodeType !== Node.ELEMENT_NODE) {{
+        element = element.parentNode;
+    }}
+    
+    // Find the actual block element (p, h1-h6, li, td, th, div, etc.)
+    while (element && element !== mainContent) {{
+        const tagName = element.tagName;
+        if (tagName && tagName.match(/^(P|H[1-6]|LI|TD|TH|DIV|PRE|BLOCKQUOTE|TABLE)$/)) {{
+            break;
+        }}
+        element = element.parentNode;
+    }}
+    
+    // Check if we found a valid block and it's within the editable content
+    if (!element || element === mainContent || !mainContent.contains(element)) {{
+        toolbar.style.display = 'none';
+        return;
+    }}
+    
+    // Highlight the block
+    currentHighlightedBlock = element;
+    element.style.outline = '2px solid #3498db';
+    element.style.outlineOffset = '2px';
+    
+    // Position toolbar above the block
+    const rect = element.getBoundingClientRect();
+    toolbar.style.display = 'block';
+    toolbar.style.left = `${{rect.left + window.scrollX}}px`;
+    toolbar.style.top = `${{rect.top + window.scrollY - toolbar.offsetHeight - 10}}px`;
+    
+    // Ensure toolbar stays within viewport
+    const toolbarRect = toolbar.getBoundingClientRect();
+    if (toolbarRect.right > window.innerWidth) {{
+        toolbar.style.left = `${{window.innerWidth - toolbarRect.width - 10}}px`;
+    }}
+    if (toolbarRect.top < 0) {{
+        toolbar.style.top = `${{rect.bottom + window.scrollY + 10}}px`;
+    }}
+}}
+
+function executeCommand(command) {{
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    
+    switch (command) {{
+        case 'bold':
+            document.execCommand('bold', false, null);
+            break;
+        case 'italic':
+            document.execCommand('italic', false, null);
+            break;
+        case 'underline':
+            document.execCommand('underline', false, null);
+            break;
+        case 'code':
+            wrapSelectionWithTag('code');
+            break;
+        case 'link':
+            const url = prompt('Enter URL:');
+            if (url) {{
+                document.execCommand('createLink', false, url);
+            }}
+            break;
+        case 'table':
+            insertTable();
+            break;
+        case 'header':
+            toggleHeader();
+            break;
+        case 'list':
+            document.execCommand('insertUnorderedList', false, null);
+            break;
+    }}
+    
+    handleContentChange();
+    handleCursorPosition();
+}}
+
+function wrapSelectionWithTag(tag) {{
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    
+    const range = selection.getRangeAt(0);
+    const selectedText = range.toString();
+    
+    if (selectedText) {{
+        const wrapper = document.createElement(tag);
+        try {{
+            range.surroundContents(wrapper);
+        }} catch (e) {{
+            // If surroundContents fails, create new element with content
+            wrapper.textContent = selectedText;
+            range.deleteContents();
+            range.insertNode(wrapper);
+        }}
+        
+        // Clear selection
+        selection.removeAllRanges();
+    }}
+}}
+
+function toggleHeader() {{
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    
+    const range = selection.getRangeAt(0);
+    let element = range.commonAncestorContainer;
+    
+    // Find the containing block element
+    while (element && element.nodeType !== Node.ELEMENT_NODE) {{
+        element = element.parentNode;
+    }}
+    
+    // Check if already a header
+    if (element.tagName && element.tagName.match(/^H[1-6]$/)) {{
+        // Convert to paragraph
+        const p = document.createElement('p');
+        p.innerHTML = element.innerHTML;
+        element.parentNode.replaceChild(p, element);
+    }} else {{
+        // Find paragraph or div to convert to header
+        while (element && !element.tagName.match(/^(P|DIV|H[1-6])$/)) {{
+            element = element.parentNode;
+        }}
+        
+        if (element) {{
+            const h2 = document.createElement('h2');
+            h2.innerHTML = element.innerHTML;
+            element.parentNode.replaceChild(h2, element);
+        }}
+    }}
+}}
+
+function insertTable() {{
+    const rows = parseInt(prompt('Number of rows:', '3')) || 3;
+    const cols = parseInt(prompt('Number of columns:', '3')) || 3;
+    
+    const selection = window.getSelection();
+    const range = selection.getRangeAt(0);
+    
+    const table = document.createElement('table');
+    table.style.cssText = `
+        border-collapse: collapse;
+        width: 100%;
+        margin: 10px 0;
+        border: 1px solid #ddd;
+    `;
+    
+    for (let i = 0; i < rows; i++) {{
+        const row = document.createElement('tr');
+        for (let j = 0; j < cols; j++) {{
+            const cell = document.createElement(i === 0 ? 'th' : 'td');
+            cell.style.cssText = `
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+                min-width: 80px;
+            `;
+            cell.contentEditable = true;
+            cell.textContent = i === 0 ? `Header ${{j + 1}}` : `Cell ${{i}},${{j + 1}}`;
+            row.appendChild(cell);
+        }}
+        table.appendChild(row);
+    }}
+    
+    // Insert table at cursor position
+    range.deleteContents();
+    range.insertNode(table);
+    
+    // Add some space after table
+    const br = document.createElement('br');
+    table.parentNode.insertBefore(br, table.nextSibling);
+    
+    selection.removeAllRanges();
 }}
 
 function handleContentChange() {{
@@ -283,6 +550,9 @@ function saveContent() {{
         # Remove extra whitespace and normalize
         content = html_content.strip()
         
+        # Convert tables first (more complex)
+        content = self._convert_tables_to_markdown(content)
+        
         # Convert headers
         content = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1', content, flags=re.DOTALL)
         content = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1', content, flags=re.DOTALL)
@@ -303,6 +573,7 @@ function saveContent() {{
         content = re.sub(r'<b[^>]*>(.*?)</b>', r'**\1**', content, flags=re.DOTALL)
         content = re.sub(r'<em[^>]*>(.*?)</em>', r'*\1*', content, flags=re.DOTALL)
         content = re.sub(r'<i[^>]*>(.*?)</i>', r'*\1*', content, flags=re.DOTALL)
+        content = re.sub(r'<u[^>]*>(.*?)</u>', r'<u>\1</u>', content, flags=re.DOTALL)  # Keep underline as HTML
         
         # Convert lists
         content = re.sub(r'<li[^>]*>(.*?)</li>', r'- \1', content, flags=re.DOTALL)
@@ -312,8 +583,8 @@ function saveContent() {{
         # Convert links
         content = re.sub(r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>', r'[\2](\1)', content, flags=re.DOTALL)
         
-        # Remove remaining HTML tags
-        content = re.sub(r'<[^>]+>', '', content)
+        # Remove remaining HTML tags (except those we want to keep)
+        content = re.sub(r'<(?!/?u\b)[^>]+>', '', content)
         
         # Unescape HTML entities
         content = unescape(content)
@@ -323,6 +594,47 @@ function saveContent() {{
         content = content.strip()
         
         return content
+    
+    def _convert_tables_to_markdown(self, html_content: str) -> str:
+        """Convert HTML tables to markdown format."""
+        def table_replacer(match):
+            table_html = match.group(0)
+            
+            # Extract rows
+            rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
+            if not rows:
+                return table_html
+            
+            markdown_rows = []
+            
+            for i, row in enumerate(rows):
+                # Extract cells (th or td)
+                cells = re.findall(r'<t[hd][^>]*>(.*?)</t[hd]>', row, re.DOTALL)
+                if cells:
+                    # Clean cell content
+                    clean_cells = []
+                    for cell in cells:
+                        # Remove HTML tags from cell content
+                        clean_cell = re.sub(r'<[^>]+>', '', cell).strip()
+                        clean_cell = unescape(clean_cell)
+                        clean_cells.append(clean_cell)
+                    
+                    # Create markdown row
+                    markdown_row = '| ' + ' | '.join(clean_cells) + ' |'
+                    markdown_rows.append(markdown_row)
+                    
+                    # Add separator after header row
+                    if i == 0:
+                        separator = '| ' + ' | '.join(['---'] * len(clean_cells)) + ' |'
+                        markdown_rows.append(separator)
+            
+            if markdown_rows:
+                return '\n\n' + '\n'.join(markdown_rows) + '\n\n'
+            else:
+                return table_html
+        
+        # Replace tables with markdown
+        return re.sub(r'<table[^>]*>.*?</table>', table_replacer, html_content, flags=re.DOTALL)
     
     async def handle_content_save(self, websocket, html_content: str):
         """Handle saving edited content back to markdown file."""
