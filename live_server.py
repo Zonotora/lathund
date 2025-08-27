@@ -7,6 +7,8 @@ import os
 import pathlib
 import time
 import re
+import subprocess
+import tempfile
 from typing import Set
 import websockets
 import webbrowser
@@ -108,6 +110,33 @@ ws.onmessage = function(event) {{
     }} else if (data.type === 'content_updated') {{
         // Update was successful, no need to reload
         console.log('Content saved to markdown file');
+    }} else if (data.type === 'code_execution_result') {{
+        handleCodeExecutionResult(data);
+    }}
+}};
+
+function handleCodeExecutionResult(data) {{
+    if (window.pendingExecution) {{
+        const {{ outputArea, runButton, originalText }} = window.pendingExecution;
+        
+        // Display the result
+        if (data.success) {{
+            outputArea.textContent = data.output || '(no output)';
+            if (data.stderr) {{
+                outputArea.textContent += '\\n\\nStderr:\\n' + data.stderr;
+            }}
+        }} else {{
+            outputArea.textContent = 'Error: ' + (data.error || 'Unknown error');
+            outputArea.style.color = '#ff6b6b';
+        }}
+        
+        // Reset button
+        runButton.innerHTML = originalText;
+        runButton.disabled = false;
+        runButton.style.background = '#28a745';
+        
+        // Clear pending execution
+        window.pendingExecution = null;
     }}
 }};
 
@@ -190,7 +219,8 @@ function createEditingToolbar() {{
         {{ icon: '🔗', title: 'Link', command: 'link', style: 'color: #3498db;' }},
         {{ icon: '📋', title: 'Table', command: 'table', style: 'color: #e74c3c;' }},
         {{ icon: '#', title: 'Header', command: 'header', style: 'font-weight: bold; color: #9b59b6;' }},
-        {{ icon: '•', title: 'List', command: 'list', style: 'color: #f39c12;' }}
+        {{ icon: '•', title: 'List', command: 'list', style: 'color: #f39c12;' }},
+        {{ icon: '▶', title: 'Executable Code', command: 'exec_code', style: 'color: #27ae60; font-size: 14px;' }}
     ];
     
     buttons.forEach(btn => {{
@@ -322,10 +352,205 @@ function executeCommand(command) {{
         case 'list':
             document.execCommand('insertUnorderedList', false, null);
             break;
+        case 'exec_code':
+            insertExecutableCodeBlock();
+            break;
     }}
     
     handleContentChange();
     handleCursorPosition();
+}}
+
+function insertExecutableCodeBlock() {{
+    const selection = window.getSelection();
+    const range = selection.getRangeAt(0);
+    
+    // Create executable code block container
+    const codeContainer = document.createElement('div');
+    codeContainer.className = 'executable-code-block';
+    codeContainer.style.cssText = `
+        position: relative;
+        margin: 20px 0;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #f8f9fa;
+    `;
+    
+    // Create header with run button
+    const header = document.createElement('div');
+    header.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: #e9ecef;
+        border-bottom: 1px solid #ddd;
+        border-radius: 8px 8px 0 0;
+        font-size: 12px;
+        color: #495057;
+    `;
+    
+    const langSelect = document.createElement('select');
+    langSelect.style.cssText = `
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 12px;
+        background: white;
+    `;
+    
+    const languages = [
+        {{value: 'python', label: 'Python'}},
+        {{value: 'javascript', label: 'JavaScript (Node.js)'}},
+        {{value: 'bash', label: 'Bash'}},
+        {{value: 'c', label: 'C'}},
+        {{value: 'cpp', label: 'C++'}},
+        {{value: 'java', label: 'Java'}},
+        {{value: 'rust', label: 'Rust'}},
+        {{value: 'go', label: 'Go'}}
+    ];
+    
+    languages.forEach(lang => {{
+        const option = document.createElement('option');
+        option.value = lang.value;
+        option.textContent = lang.label;
+        langSelect.appendChild(option);
+    }});
+    
+    const runButton = document.createElement('button');
+    runButton.innerHTML = '▶ Run';
+    runButton.style.cssText = `
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    `;
+    
+    runButton.addEventListener('mouseenter', () => {{
+        runButton.style.background = '#218838';
+    }});
+    runButton.addEventListener('mouseleave', () => {{
+        runButton.style.background = '#28a745';
+    }});
+    
+    header.appendChild(langSelect);
+    header.appendChild(runButton);
+    
+    // Create code editor
+    const codeEditor = document.createElement('pre');
+    codeEditor.contentEditable = true;
+    codeEditor.style.cssText = `
+        margin: 0;
+        padding: 16px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 14px;
+        line-height: 1.4;
+        background: #f8f9fa;
+        color: #212529;
+        border: none;
+        outline: none;
+        white-space: pre-wrap;
+        min-height: 100px;
+        resize: none;
+    `;
+    
+    // Add placeholder text
+    codeEditor.textContent = `# Write your code here
+print("Hello, World!")`;
+    
+    // Create output area
+    const outputArea = document.createElement('div');
+    outputArea.className = 'code-output';
+    outputArea.style.cssText = `
+        background: #1e1e1e;
+        color: #d4d4d4;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 13px;
+        padding: 12px;
+        border-top: 1px solid #ddd;
+        border-radius: 0 0 8px 8px;
+        white-space: pre-wrap;
+        display: none;
+        max-height: 300px;
+        overflow-y: auto;
+    `;
+    
+    // Add click handler for run button
+    runButton.addEventListener('click', (e) => {{
+        e.preventDefault();
+        e.stopPropagation();
+        executeCode(codeEditor, langSelect, outputArea, runButton);
+    }});
+    
+    // Prevent the code editor from triggering block selection
+    codeEditor.addEventListener('click', (e) => {{
+        e.stopPropagation();
+    }});
+    
+    // Assemble the block
+    codeContainer.appendChild(header);
+    codeContainer.appendChild(codeEditor);
+    codeContainer.appendChild(outputArea);
+    
+    // Insert at cursor position
+    range.deleteContents();
+    range.insertNode(codeContainer);
+    
+    // Add some space after the block
+    const br = document.createElement('br');
+    codeContainer.parentNode.insertBefore(br, codeContainer.nextSibling);
+    
+    selection.removeAllRanges();
+    
+    // Focus the code editor
+    codeEditor.focus();
+}}
+
+function executeCode(codeEditor, langSelect, outputArea, runButton) {{
+    const code = codeEditor.textContent;
+    const language = langSelect.value;
+    
+    if (!code.trim()) {{
+        return;
+    }}
+    
+    // Update button state
+    const originalText = runButton.innerHTML;
+    runButton.innerHTML = '⏳ Running...';
+    runButton.disabled = true;
+    runButton.style.background = '#6c757d';
+    
+    // Show output area
+    outputArea.style.display = 'block';
+    outputArea.textContent = 'Executing...';
+    
+    // Send code execution request
+    if (ws.readyState === WebSocket.OPEN) {{
+        ws.send(JSON.stringify({{
+            type: 'execute_code',
+            code: code,
+            language: language,
+            timestamp: Date.now()
+        }}));
+        
+        // Store reference for response handling
+        window.pendingExecution = {{
+            outputArea: outputArea,
+            runButton: runButton,
+            originalText: originalText
+        }};
+    }} else {{
+        outputArea.textContent = 'Error: WebSocket connection not available';
+        runButton.innerHTML = originalText;
+        runButton.disabled = false;
+        runButton.style.background = '#28a745';
+    }}
 }}
 
 function wrapSelectionWithTag(tag) {{
@@ -532,6 +757,8 @@ function saveContent() {{
                     data = json.loads(message)
                     if data.get('type') == 'save_content':
                         await self.handle_content_save(websocket, data.get('content', ''))
+                    elif data.get('type') == 'execute_code':
+                        await self.handle_code_execution(websocket, data)
                 except json.JSONDecodeError:
                     print(f"Invalid JSON received: {message}")
                 except Exception as e:
@@ -664,6 +891,136 @@ function saveContent() {{
                 "status": "error",
                 "message": str(e)
             }))
+    
+    async def handle_code_execution(self, websocket, data):
+        """Handle code execution requests."""
+        code = data.get('code', '')
+        language = data.get('language', 'python')
+        
+        try:
+            result = await self._execute_code(code, language)
+            await websocket.send(json.dumps({
+                "type": "code_execution_result",
+                "success": result['success'],
+                "output": result['output'],
+                "stderr": result.get('stderr', ''),
+                "error": result.get('error', '')
+            }))
+        except Exception as e:
+            await websocket.send(json.dumps({
+                "type": "code_execution_result",
+                "success": False,
+                "output": '',
+                "stderr": '',
+                "error": str(e)
+            }))
+    
+    async def _execute_code(self, code: str, language: str) -> dict:
+        """Execute code in the specified language."""
+        try:
+            # Create temporary file for the code
+            with tempfile.NamedTemporaryFile(mode='w', suffix=self._get_file_extension(language), delete=False) as f:
+                f.write(code)
+                temp_file = f.name
+            
+            try:
+                # Get the command to execute
+                cmd = self._get_execution_command(language, temp_file)
+                
+                if not cmd:
+                    return {
+                        'success': False,
+                        'output': '',
+                        'error': f'Unsupported language: {language}'
+                    }
+                
+                # Execute the code with timeout
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=tempfile.gettempdir()
+                )
+                
+                try:
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
+                    
+                    return {
+                        'success': process.returncode == 0,
+                        'output': stdout.decode('utf-8', errors='replace'),
+                        'stderr': stderr.decode('utf-8', errors='replace'),
+                        'error': '' if process.returncode == 0 else f'Process exited with code {process.returncode}'
+                    }
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                    return {
+                        'success': False,
+                        'output': '',
+                        'error': 'Code execution timed out (30 seconds)'
+                    }
+                    
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_file)
+                except OSError:
+                    pass
+                    
+        except Exception as e:
+            return {
+                'success': False,
+                'output': '',
+                'error': str(e)
+            }
+    
+    def _get_file_extension(self, language: str) -> str:
+        """Get file extension for the given language."""
+        extensions = {
+            'python': '.py',
+            'javascript': '.js',
+            'bash': '.sh',
+            'c': '.c',
+            'cpp': '.cpp',
+            'java': '.java',
+            'rust': '.rs',
+            'go': '.go'
+        }
+        return extensions.get(language, '.txt')
+    
+    def _get_execution_command(self, language: str, filename: str) -> list:
+        """Get the command to execute code for the given language."""
+        commands = {
+            'python': ['python3', filename],
+            'javascript': ['node', filename],
+            'bash': ['bash', filename],
+            'c': self._get_c_command(filename),
+            'cpp': self._get_cpp_command(filename),
+            'java': self._get_java_command(filename),
+            'rust': self._get_rust_command(filename),
+            'go': ['go', 'run', filename]
+        }
+        return commands.get(language)
+    
+    def _get_c_command(self, filename: str) -> list:
+        """Get command to compile and run C code."""
+        executable = filename.replace('.c', '')
+        return ['sh', '-c', f'gcc -o {executable} {filename} && {executable}']
+    
+    def _get_cpp_command(self, filename: str) -> list:
+        """Get command to compile and run C++ code."""
+        executable = filename.replace('.cpp', '')
+        return ['sh', '-c', f'g++ -o {executable} {filename} && {executable}']
+    
+    def _get_java_command(self, filename: str) -> list:
+        """Get command to compile and run Java code."""
+        classname = os.path.basename(filename).replace('.java', '')
+        return ['sh', '-c', f'javac {filename} && java -cp {os.path.dirname(filename)} {classname}']
+    
+    def _get_rust_command(self, filename: str) -> list:
+        """Get command to compile and run Rust code."""
+        executable = filename.replace('.rs', '')
+        return ['sh', '-c', f'rustc -o {executable} {filename} && {executable}']
     
     def start_http_server(self):
         """Start HTTP server in a separate thread."""
