@@ -1,0 +1,4 @@
+markdown>=3.4.0
+pygments>=2.15.0
+websockets>=11.0.0
+watchdog>=3.0.0
